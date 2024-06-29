@@ -154,8 +154,8 @@ const logoutUser = asyncHandler( async(req,res) => {
     await User.findByIdAndUpdate(
         req.user._id,
         {
-            set: {
-                refreshToken: undefined
+            $unset: {
+                refreshToken: 1
             }
         },
         {
@@ -181,15 +181,17 @@ const logoutUser = asyncHandler( async(req,res) => {
 
 const refreshAccessToken = asyncHandler( async(req, res) => {
     try {
-        const incomingRefreshToken = req.cookies.refreshAccessToken || req.body.refreshToken
+        const incomingRefreshToken = req.cookies.refreshToken || req.body.refreshToken
     
         if(!incomingRefreshToken){
             throw new ApiError(401,"Unauthorized request")
         }
     
-        const decodedToken = jwt.verify(incomingRefreshToken, process.env.refreshAccessToken)
+        const decodedToken = jwt.verify(incomingRefreshToken, process.env.REFRESH_TOKEN_SECRET)
+        console.log(incomingRefreshToken)
     
         const user = User.findById(decodedToken?._id)
+        console.log(user)
     
         if(!user){
             throw new ApiError(401, "Invalid refresh token")
@@ -208,8 +210,8 @@ const refreshAccessToken = asyncHandler( async(req, res) => {
     
         return res
         .status(200)
-        .cookie("accessToken", accessToken)
-        .cookie("refreshToken", newRefreshToken)
+        .cookie("accessToken", accessToken, options)
+        .cookie("refreshToken", newRefreshToken, options)
         .json(new ApiResponse(200, {accessToken, refreshToken: newRefreshToken},
             "Access token refreshed."
         ))
@@ -227,9 +229,9 @@ const changeCurrentPassword = asyncHandler( async (req, res) => {
     }
 
     const user = await User.findById(req.user?._id)
-    const isPasswordCorrect = await User.isPasswordCorrect(oldPassword)
+    const isPasswordValid = await user.isPasswordCorrect(oldPassword)
 
-    if(!isPasswordCorrect){
+    if(!isPasswordValid){
         throw new ApiError(400, "Invalid old password")
     }
 
@@ -241,7 +243,7 @@ const changeCurrentPassword = asyncHandler( async (req, res) => {
 
 
 const getCurrentUser = asyncHandler( async(req, res) => {
-    return res.status(200).json(new ApiError(200, req.user, "Current user fetched"))
+    return res.status(200).json(new ApiResponse(200, req.user, "Current user fetched"))
 })
 
 
@@ -252,7 +254,7 @@ const updateAccountDetails = asyncHandler( async(req, res) => {
         throw new ApiError(400, "fullname or email is required")
     }
 
-    User.findByIdAndUpdate(
+    const user = await User.findByIdAndUpdate(
         req.user?._id,
         {
             $set: {
@@ -324,6 +326,7 @@ const updateCoverImage = asyncHandler( async(req, res) => {
 
 const getUserChannelProfile = asyncHandler( async(req, res) => {
     const {username} = req.params
+    console.log(req.params)
 
     if(!username) {
         throw new ApiError(400, "Username is missing")
@@ -331,7 +334,9 @@ const getUserChannelProfile = asyncHandler( async(req, res) => {
 
     const channel = await User.aggregate([
         {
-        $match: username?.toLowerCase()
+            $match: {
+                username: username?.toLowerCase()
+            }
         },
         {
             $lookup: {
@@ -389,10 +394,11 @@ const getUserChannelProfile = asyncHandler( async(req, res) => {
 
 
 const getWatchHistory = asyncHandler( async(req, res) => {
+    console.log(req.user)
     const user = await User.aggregate([
         {
             $match: {
-                _id: mongoose.Types.ObjectId.createFromHexString(req.user._id)
+                _id: new mongoose.Types.ObjectId(req.user?._id)
             }
         },
         {
@@ -423,7 +429,7 @@ const getWatchHistory = asyncHandler( async(req, res) => {
         {
             $addFields: {
                 owner: {
-                    $first: "owner"
+                    $first: "$owner"
                 }
             }
         }
